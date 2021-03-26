@@ -11,8 +11,11 @@ import (
 )
 
 type Engine struct {
-	port string
-	base string
+	port     string
+	base     string
+	username string
+	password string
+	auth     bool
 }
 
 func (e Engine) handleIcon(w http.ResponseWriter, r *http.Request) {}
@@ -34,6 +37,17 @@ func checkVideoExt(ext string) bool {
 }
 
 func (e Engine) Serve(w http.ResponseWriter, r *http.Request) {
+
+	if e.auth {
+		username, password, _ := r.BasicAuth()
+
+		if username != e.username || password != e.password {
+			w.Header().Set("WWW-Authenticate", "Basic realm==")
+			w.WriteHeader(401)
+			w.Write([]byte("认证失败"))
+			return
+		}
+	}
 
 	link := r.URL.Path
 	local := e.base + strings.Replace(link, "/", "\\", -1)

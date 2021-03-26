@@ -8,42 +8,60 @@ import (
 	"github.com/skip2/go-qrcode"
 	"net"
 	"net/http"
+	"strconv"
 )
 
 type UI struct {
 	window   *walk.MainWindow
-	btnOpen  *walk.PushButton
+	btnStart *walk.PushButton
 	btnClose *walk.PushButton
 	path     *walk.LineEdit
 	port     *walk.LineEdit
 	status   *walk.TextLabel
 	qrcode   *walk.ImageView
 	addrs    *walk.ComboBox
-	statusId int
+	auth     *walk.CheckBox
+	username *walk.LineEdit
+	password *walk.LineEdit
 	e        *Engine
 	server   *http.Server
 }
 
+func (ui *UI) checkPort() (e string) {
+	port := ui.port.Text()
+	num, err := strconv.Atoi(port)
+	if err != nil || num < 1 || num > 65535 {
+		e = "无效的端口号"
+	} else {
+		e = ""
+		ui.e.port = ":" + port
+	}
+	return e
+}
+
 func (ui *UI) Start() {
-	if ui.statusId == 1 {
+
+	errString := ui.checkPort()
+	if errString != "" {
+		ui.status.Synchronize(func() {
+			ui.status.SetText("错误：" + errString)
+		})
 		return
 	}
 
-	ui.statusId = 1
-
-	ui.e.port = ":" + ui.port.Text()
-
 	ui.RefreshQRCode()
 
-	ui.status.Synchronize(func() {
-		ui.status.SetText("状态：运行中")
-	})
-	ui.port.Synchronize(func() {
-		ui.port.SetEnabled(false)
-	})
-	ui.path.Synchronize(func() {
-		ui.path.SetEnabled(false)
-	})
+	ui.status.SetText("状态：运行中")
+	ui.btnStart.SetEnabled(false)
+	ui.btnClose.SetEnabled(true)
+
+	if ui.auth.Enabled() {
+		ui.e.auth = true
+		ui.e.username = ui.username.Text()
+		ui.e.password = ui.password.Text()
+	} else {
+		ui.e.auth = false
+	}
 
 	ui.e.base = ui.path.Text()
 
@@ -52,18 +70,8 @@ func (ui *UI) Start() {
 }
 
 func (ui *UI) Close() {
-	if ui.statusId == 0 {
-		return
-	}
-
-	ui.statusId = 0
-
-	ui.port.Synchronize(func() {
-		ui.port.SetEnabled(true)
-	})
-	ui.path.Synchronize(func() {
-		ui.path.SetEnabled(true)
-	})
+	ui.btnStart.SetEnabled(true)
+	ui.btnClose.SetEnabled(false)
 
 	ui.server.Shutdown(context.TODO())
 
@@ -74,9 +82,10 @@ func (ui *UI) Close() {
 
 func createWindow() UI {
 	var ui UI
-	ui.statusId = 0
+
 	ui.e = &Engine{
 		port: ":9999",
+		auth: false,
 	}
 
 	window := declarative.MainWindow{
@@ -96,11 +105,11 @@ func createWindow() UI {
 			},
 			declarative.LineEdit{
 				AssignTo:  &ui.port,
-				CueBanner: "输入使用的端口号，默认:9999",
+				CueBanner: "输入使用的端口号",
 				//OnEditingFinished: ui.RefreshQRCode,
 			},
 			declarative.PushButton{
-				AssignTo:  &ui.btnOpen,
+				AssignTo:  &ui.btnStart,
 				Text:      "开启服务并生成二维码",
 				OnClicked: ui.Start,
 			},
@@ -116,6 +125,18 @@ func createWindow() UI {
 			declarative.ImageView{
 				AssignTo: &ui.qrcode,
 			},
+			declarative.CheckBox{
+				AssignTo: &ui.auth,
+				Text:     "启用密码验证",
+			},
+			declarative.LineEdit{
+				AssignTo:  &ui.username,
+				CueBanner: "默认为空",
+			},
+			declarative.LineEdit{
+				AssignTo:  &ui.password,
+				CueBanner: "默认为空",
+			},
 		},
 	}
 	window.Create()
@@ -124,20 +145,15 @@ func createWindow() UI {
 
 func (ui *UI) RefreshQRCode() {
 	ip := ui.addrs.Text()
-	ui.qrcode.Synchronize(
-		func() {
-			ui.qrcode.SetImage(
-				genQRCode(ip, ui.e.port))
-		})
+	ui.qrcode.SetImage(genQRCode(ip, ui.e.port))
 }
 
 func (ui *UI) initInfo() {
-	addrs := getLocalIP()
 
-	ui.addrs.Synchronize(func() {
-		ui.addrs.SetModel(addrs)
-		ui.addrs.SetCurrentIndex(0)
-	})
+	addrs := getLocalIP()
+	ui.addrs.SetModel(addrs)
+	ui.addrs.SetCurrentIndex(0)
+	ui.btnClose.SetEnabled(false)
 }
 
 func main() {
@@ -176,7 +192,7 @@ func getLocalIP() (result []string) {
 }
 
 func genQRCode(ip string, port string) walk.Image {
-	qr, err := qrcode.New(ip+port, qrcode.Medium)
+	qr, err := qrcode.New("http://"+ip+port, qrcode.Medium)
 	if err != nil {
 		return nil
 	}
