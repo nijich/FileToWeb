@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/lxn/walk"
 	"github.com/lxn/walk/declarative"
 	"github.com/skip2/go-qrcode"
+	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -50,13 +54,13 @@ func (ui *UI) Start() {
 		return
 	}
 
-	ui.RefreshQRCode()
+	ui.refreshQRCode()
 
 	ui.status.SetText("状态：运行中")
 	ui.btnStart.SetEnabled(false)
 	ui.btnClose.SetEnabled(true)
 
-	if ui.auth.Enabled() {
+	if ui.auth.Checked() {
 		ui.e.auth = true
 		ui.e.username = ui.username.Text()
 		ui.e.password = ui.password.Text()
@@ -140,7 +144,7 @@ func createWindow() UI {
 								CueBanner: "例如: 9999",
 								Row:       1,
 								Column:    1,
-								//OnEditingFinished: ui.RefreshQRCode,
+								//OnEditingFinished: ui.refreshQRCode,
 							},
 
 							declarative.CheckBox{
@@ -207,7 +211,7 @@ func createWindow() UI {
 							},
 							declarative.ComboBox{
 								AssignTo: &ui.addrs,
-								//OnCurrentIndexChanged: ui.RefreshQRCode, // seems invoke three times once
+								//OnCurrentIndexChanged: ui.refreshQRCode, // seems invoke three times once
 							},
 							declarative.ImageView{
 								MinSize:  declarative.Size{200, 200},
@@ -232,9 +236,43 @@ func createWindow() UI {
 	return ui
 }
 
-func (ui *UI) RefreshQRCode() {
+func (ui *UI) refreshQRCode() {
 	ip := ui.addrs.Text()
 	ui.qrcode.SetImage(genQRCode(ip, ui.e.port))
+}
+
+func (ui *UI) loadDefaultConf() {
+	f, e := os.Open("default.conf")
+	if e == nil {
+		var defaultData map[string]interface{}
+		text, _ := ioutil.ReadAll(f)
+		text = []byte(strings.Replace(string(text), "\n", "", -1))
+		text = []byte(strings.Replace(string(text), " ", "", -1))
+		err := json.Unmarshal(text, &defaultData)
+		if err != nil {
+			ui.status.SetText("错误：默认配置文件格式有误")
+		}
+		valid := defaultData["valid"]
+		switch valid.(type) {
+		case bool:
+		default:
+			return
+		}
+
+		ui.path.SetText(fmt.Sprintf("%v", defaultData["local"]))
+		ui.port.SetText(fmt.Sprintf("%v", defaultData["port"]))
+
+		auth := defaultData["auth"]
+		log.Println(auth)
+		switch auth.(type) {
+		case bool:
+		default:
+			return
+		}
+		ui.auth.SetChecked(true)
+		ui.username.SetText(fmt.Sprintf("%v", defaultData["username"]))
+		ui.password.SetText(fmt.Sprintf("%v", defaultData["password"]))
+	}
 }
 
 func (ui *UI) initInfo() {
@@ -244,6 +282,7 @@ func (ui *UI) initInfo() {
 	ui.addrs.SetCurrentIndex(0)
 	ui.btnClose.SetEnabled(false)
 	ui.qrcode.SetImage(genQRCode(" ", ""))
+	ui.loadDefaultConf()
 }
 
 func main() {
